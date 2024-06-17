@@ -5,6 +5,10 @@ import { getRandomInt } from './utils.js';
 
 dotenv.config();
 
+if(!process.env.FIREBASE_SERVICE_ACCOUNT_KEY || !process.env.FIREBASE_AUTH_UID) {
+  throw new Error('Missing required environment variables for DB');
+}
+
 // Setting up Firebase Admin SDK https://firebase.google.com/docs/database/admin/start
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
 const FIREBASE_DB_URL = 'https://tiny-random-concert-default-rtdb.firebaseio.com/';
@@ -24,115 +28,115 @@ const db = getDatabase(app);
 // Useful link about security rules: https://medium.com/@juliomacr/10-firebase-realtime-database-rule-templates-d4894a118a98
 
 // Exported CRUD methods that interact with Firebase DB
-export const getAllData = async () => {
-  let allData = '';  
-  const ref = db.ref("concerts/");
-  
-  await ref.once("value", function(snapshot) {
-    allData = snapshot.val();
-  });
-
-  return allData;
+export const getData = async (path) => {
+  try {
+    const ref = db.ref(path);
+    const snapshot = await ref.once("value");
+    return snapshot.val();
+  } catch (error) {
+    console.error(`Error getting data from path ${path}:`, error);
+    throw error;
+  }
 };
 
-export const getRevid = async () => {
-  let revid = '';  
-  const ref = db.ref("concerts/revid/");
-  
-  await ref.once("value", function(snapshot) {
-    revid = snapshot.val();
-  });
-
-  return revid;
-};
-
-export const setRevid = async (id) => {  
-  // Consider setting this kind of validation in the Firebase Realtime DB Security rules
-  // Can even request security rules as JSON: https://firebase.google.com/docs/reference/admin/node/firebase-admin.security-rules
+export const setRevid = async (id) => {
   if (!id || typeof id !== 'number') {
     throw new Error('revid must be a valid number');
-  } else {
+  }
+  
+  try {
     const revidRef = db.ref('concerts/revid');
-    revidRef.set(id)   
+    await revidRef.set(id);
+  } catch (error) {
+    throw new Error(`Failed to set revid: ${error.message}`);
   }
 };
 
 export const setConcertsLinks = async (concertsLinks) => {  
   if (!Array.isArray(concertsLinks) || !concertsLinks.length) {
     throw new Error('concerts/links must be non-empty array');
-  } else {
+  } 
+
+  try {
     const linksRef = db.ref('concerts/links');
-    concertsLinks.forEach(link => linksRef.push(link))   
+    const promises = concertsLinks.map(link => linksRef.push(link));
+    await Promise.all(promises);
+  } catch (error) {
+    throw new Error(`Failed to set concertsLinks: ${error.message}`);
   }
+
 };
 
-export const addNewConcertLink = async (link) => {  
+export const addNewConcertLink = async (link) => {
   if (!link || typeof link !== 'string') {
-    throw new Error('concerts/links must be valid string');
-  } else {
+    throw new Error('concertLink must be a valid string');
+  }
+  
+  try {
     const linksRef = db.ref('concerts/links');
-    linksRef.push(link)   
+    await linksRef.push(link);
+  } catch (error) {
+    throw new Error(`Failed to add new concert link: ${error.message}`);
   }
 };
 
-
-
-export const getAllConcertLinks = async () => {
-  let concertLinks = [];
-  
-  const ref = db.ref("concerts/links/");
-  await ref.once("value", function(snapshot) {
-    concertLinks = snapshot.val();
-  });
-
-  return concertLinks;
+// Helper function to get a random integer
+const getRandomInt = (max) => {
+  return Math.floor(Math.random() * max);
 };
 
 export const getRandConcert = async () => {
-  let parsedLinks = [];
-  const data = await getAllData();
-  const maxCount = data['concerts_count'];
+  try {
+    const { concerts_count: maxCount } = await getData("concerts/concerts_count");
+    const randomIndex = getRandomInt(maxCount);
 
-  const randomIndex = getRandomInt(maxCount);
+    const linksRef = db.ref('concerts/links');
+    const snapshot = await linksRef.once("value");
+    const parsedLinks = snapshot.val();
 
-  // Get a random concert link –- absolutely hacky
-  const countRef = db.ref('concerts/links');
-  await countRef.once("value", function(snapshot) {
-    snapshot.forEach(linkSnapshot => {
-      parsedLinks.push(linkSnapshot.val())
-    });
-  })
-  // return link
-  return parsedLinks[randomIndex]
-}
+    return parsedLinks[randomIndex];
+  } catch (error) {
+    console.error('Error getting random concert:', error);
+    throw error; 
+  }
+};
+
+
 
 export const updateCount = async () => {
-  const concertsCount = db.ref('concerts/concerts_count');
-  
-  concertsCount.transaction((current_value) => {
-  
-  return (current_value || 0) + 1;
-  });
-}
+  try {
+    const concertsCount = db.ref('concerts/concerts_count');
+    await concertsCount.transaction((currentValue) => (currentValue || 0) + 1);
+  } catch (error) {
+    console.error('Error updating concerts count:', error);
+    throw error;
+  }
+};
 
 export const getCount = async () => {
-  let count = 0;  
-  const ref = db.ref("concerts/concerts_count");
-  
-  await ref.once("value", function(snapshot) {
-    count = snapshot.val();
-  });
-  return count;
+  try {
+    const ref = db.ref('concerts/concerts_count');
+    const snapshot = await ref.once('value');
+    return snapshot.val();
+  } catch (error) {
+    console.error('Error getting concerts count:', error);
+    throw error;
+  }
 };
 
 export const setCount = async (num) => {
-    if (!num || typeof num !== 'number') {
-    throw new Error('revid must be a valid number');
-  } else {
-    const countRef = db.ref('concerts/concerts_count');
-    countRef.set(num)   
+  if (typeof num !== 'number' || isNaN(num)) {
+    throw new Error('Count must be a valid number');
   }
-}
+  
+  try {
+    const countRef = db.ref('concerts/concerts_count');
+    await countRef.set(num);
+  } catch (error) {
+    console.error('Error setting concerts count:', error);
+    throw error; 
+  }
+};
 
 // Export Firebase DB
 export default db;
